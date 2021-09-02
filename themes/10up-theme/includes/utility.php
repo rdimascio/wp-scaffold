@@ -37,50 +37,94 @@ function get_asset_info( $slug, $attribute = null ) {
 }
 
 /**
- * Extract colors from a CSS or Sass file
+ * Preload attachment image, defaults to post thumbnail
  *
- * @param string $path the path to your CSS variables file
+ * @return void
  */
-function get_colors( $path ) {
+function preload_post_thumbnail() {
+	global $post;
 
-	$dir = get_stylesheet_directory();
+	/** Adjust image size based on post type or other factor. */
+	$image_size = 'full';
+	$image_size = apply_filters( 'preload_post_thumbnail_image_size', $image_size, $post );
 
-	if ( file_exists( $dir . $path ) ) {
-		$css_vars = file_get_contents( $dir . $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions
-		preg_match_all( ' /#([a-f]|[A-F]|[0-9]){3}(([a-f]|[A-F]|[0-9]){3})?\b/', $css_vars, $matches );
-		return $matches[0];
+	/** Get post thumbnail if an attachment ID isn't specified. */
+	$thumbnail_id = apply_filters( 'preload_post_thumbnail_id', get_post_thumbnail_id(), $post );
+
+	/** Get the image */
+	$image = wp_get_attachment_image_src( $thumbnail_id, $image_size );
+	$src = '';
+	$attrs = [];
+	$attr = '';
+
+	/* @TODO: Preload the first featured blog post featured image on the posts page */
+	if ( $image && ( is_single() || is_page() ) ) {
+		list( $src, $width, $height ) = $image;
+
+		/**
+		 * The following code which generates the srcset is plucked straight
+		 * out of wp_get_attachment_image() for consistency as it's important
+		 * that the output matches otherwise the preloading could become ineffective.
+		 *
+		 * @see (https://core.trac.wordpress.org/browser/tags/5.7.1/src/wp-includes/media.php#L1066)
+		 */
+		$image_meta = wp_get_attachment_metadata( $thumbnail_id );
+
+		if ( is_array( $image_meta ) ) {
+			$size_array = array( absint( $width ), absint( $height ) );
+			$srcset     = wp_calculate_image_srcset( $size_array, $src, $image_meta, $thumbnail_id );
+
+			if ( $srcset ) {
+				$attrs['imagesrcset'] = $srcset;
+				$attrs['imagesizes'] = '100vw';
+			}
+		}
+
+		foreach ( $attrs as $name => $value ) {
+			$attr .= "$name=" . '"' . $value . '" ';
+		}
+	} else {
+		/** Early exit if no image is found. */
+		return;
 	}
 
+	/** Output the link HTML tag */
+	printf( '<link rel="preload" as="image" href="%s" %s/><link rel="preload" as="image" href="%s/dist/svg/brush-bottom.svg"/>', esc_url( $src ), $attr, HOLT_THEME_TEMPLATE_URL ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 }
 
 /**
- * Adjust the brightness of a color (HEX)
+ * Appends link tag for preloading and preconnecting. Booster for performance.
  *
- * @param string $hex The hex code for the color
- * @param number $steps amount you want to change the brightness
- * @return string new color with brightness adjusted
+ * @return void
  */
-function adjust_brightness( $hex, $steps ) {
+function link_preload_preconnect() {
+	$preconnect_hrefs = [
+		'css' => [],
+	];
+	$preload_hrefs    = [
+		'font' => [],
+	];
 
-	// Steps should be between -255 and 255. Negative = darker, positive = lighter
-	$steps = max( -255, min( 255, $steps ) );
+	$allowed_tags = [
+		'link' => [
+			'rel'         => true,
+			'href'        => true,
+			'as'          => true,
+			'type'        => true,
+			'crossorigin' => true,
+		],
+	];
 
-	// Normalize into a six character long hex string
-	$hex = str_replace( '#', '', $hex );
-	if ( 3 === strlen( $hex ) ) {
-		$hex = str_repeat( substr( $hex, 0, 1 ), 2 ) . str_repeat( substr( $hex, 1, 1 ), 2 ) . str_repeat( substr( $hex, 2, 1 ), 2 );
+	foreach ( $preconnect_hrefs as $href ) {
+		echo "<link rel='preconnect' href='" . esc_url( $href ) . "' crossorigin>";
 	}
 
-	// Split into three parts: R, G and B
-	$color_parts = str_split( $hex, 2 );
-	$return      = '#';
+	foreach ( $preload_hrefs as $type => $assets ) {
+		foreach ( $assets as $asset ) {
+			$attrs = 'font' === $type ? 'type=font/woff2 crossorigin' : '';
+			$font_tag = "<link rel='preload' as='" . esc_attr( $type ) . "' href='" . esc_url( $asset ) . "'" . esc_attr( $attrs ) . ">\n";
 
-	foreach ( $color_parts as $color ) {
-		$color   = hexdec( $color ); // Convert to decimal
-		$color   = max( 0, min( 255, $color + $steps ) ); // Adjust color
-		$return .= str_pad( dechex( $color ), 2, '0', STR_PAD_LEFT ); // Make two char hex code
+			echo $font_tag; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
 	}
-
-	return $return;
-
 }

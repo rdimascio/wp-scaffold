@@ -7,7 +7,7 @@
 
 namespace TenUpTheme\Core;
 
-use TenUpTheme\Utility;
+use \TenUpTheme\Utility;
 
 /**
  * Set up theme defaults and register supported WordPress features.
@@ -18,18 +18,24 @@ function setup() {
 	$n = function( $function ) {
 		return __NAMESPACE__ . "\\$function";
 	};
-
 	add_action( 'after_setup_theme', $n( 'i18n' ) );
 	add_action( 'after_setup_theme', $n( 'theme_setup' ) );
 	add_action( 'wp_enqueue_scripts', $n( 'scripts' ) );
+	add_action( 'wp_enqueue_scripts', $n( 'styles' ) );
 	add_action( 'admin_enqueue_scripts', $n( 'admin_styles' ) );
 	add_action( 'admin_enqueue_scripts', $n( 'admin_scripts' ) );
-	add_action( 'enqueue_block_editor_assets', $n( 'core_block_overrides' ) );
-	add_action( 'wp_enqueue_scripts', $n( 'styles' ) );
 	add_action( 'wp_head', $n( 'js_detection' ), 0 );
+	add_action( 'wp_head', $n( 'module_detection' ), 0 );
+	add_action( 'wp_head', Utility\preload_post_thumbnail, 2 );
+	add_action( 'wp_head', Utility\link_preload_preconnect, 3 );
 	add_action( 'wp_head', $n( 'add_manifest' ), 10 );
+	add_action( 'get_header', $n( 'remove_admin_bar_layout_styles' ) );
 
 	add_filter( 'script_loader_tag', $n( 'script_loader_tag' ), 10, 2 );
+
+	if ( ! is_admin() ) {
+		add_filter( 'style_loader_tag', $n( 'style_loader_tag' ), 99, 2 );
+	}
 }
 
 /**
@@ -54,17 +60,19 @@ function theme_setup() {
 	add_theme_support( 'post-thumbnails' );
 	add_theme_support(
 		'html5',
-		array(
+		[
 			'search-form',
 			'gallery',
-		)
+			'script',
+			'style',
+		]
 	);
 
 	// This theme uses wp_nav_menu() in three locations.
 	register_nav_menus(
-		array(
+		[
 			'primary' => esc_html__( 'Primary Menu', 'tenup-theme' ),
-		)
+		]
 	);
 }
 
@@ -74,7 +82,6 @@ function theme_setup() {
  * @return void
  */
 function scripts() {
-
 	wp_enqueue_script(
 		'frontend',
 		TENUP_THEME_TEMPLATE_URL . '/dist/js/frontend.js',
@@ -83,93 +90,21 @@ function scripts() {
 		true
 	);
 
-	if ( is_page_template( 'templates/page-styleguide.php' ) ) {
-		wp_enqueue_script(
-			'styleguide',
-			TENUP_THEME_TEMPLATE_URL . '/dist/js/styleguide.js',
-			Utility\get_asset_info( 'styleguide', 'dependencies' ),
-			Utility\get_asset_info( 'styleguide', 'version' ),
-			true
-		);
-	}
-
-	/*
 	wp_enqueue_script(
-		'shared',
-		TENUP_THEME_TEMPLATE_URL . '/dist/js/shared.js',
-		Utility\get_asset_info( 'shared', 'dependencies' ),
-		Utility\get_asset_info( 'shared', 'version' ),
-		true
-	);
-	*/
-}
-
-/**
- * Enqueue scripts for admin
- *
- * @return void
- */
-function admin_scripts() {
-	wp_enqueue_script(
-		'admin',
-		TENUP_THEME_TEMPLATE_URL . '/dist/js/admin.js',
-		Utility\get_asset_info( 'admin', 'dependencies' ),
-		Utility\get_asset_info( 'admin', 'version' ),
-		true
-	);
-
-	/*
-	wp_enqueue_script(
-		'shared',
-		TENUP_THEME_TEMPLATE_URL . '/dist/js/shared.js',
-		Utility\get_asset_info( 'shared', 'dependencies' ),
-		Utility\get_asset_info( 'shared', 'version' ),
-		true
-	);
-	*/
-}
-
-/**
- * Enqueue core block filters, styles and variations.
- *
- * @return void
- */
-function core_block_overrides() {
-	$overrides = TENUP_THEME_DIST_PATH . 'js/core-block-overrides.asset.php';
-	if ( file_exists( $overrides ) ) {
-		$dep = require_once $overrides;
-		wp_enqueue_script(
-			'core-block-overrides',
-			TENUP_THEME_DIST_URL . 'js/core-block-overrides.js',
-			$dep['dependencies'],
-			$dep['version'],
-			true
-		);
-	}
-}
-
-/**
- * Enqueue styles for admin
- *
- * @return void
- */
-function admin_styles() {
-
-	wp_enqueue_style(
-		'admin-style',
-		TENUP_THEME_TEMPLATE_URL . '/dist/css/admin-style.css',
+		'polyfill',
+		TENUP_THEME_TEMPLATE_URL . '/dist/js/polyfill.js',
 		[],
-		Utility\get_asset_info( 'admin-style', 'version' )
+		Utility\get_asset_info( 'polyfill', 'version' ),
+		true
 	);
 
-	/*
-	wp_enqueue_style(
-		'shared-style',
-		TENUP_THEME_TEMPLATE_URL . '/dist/css/shared-style.css',
-		[],
-		Utility\get_asset_info( 'shared-style', 'version' )
+	wp_script_add_data(
+		'polyfill',
+		'attributes',
+		[
+			'nomodule' => true,
+		]
 	);
-	*/
 }
 
 /**
@@ -178,22 +113,71 @@ function admin_styles() {
  * @return void
  */
 function styles() {
-
 	wp_enqueue_style(
 		'styles',
 		TENUP_THEME_TEMPLATE_URL . '/dist/css/style.css',
 		[],
 		Utility\get_asset_info( 'style', 'version' )
 	);
+}
 
-	if ( is_page_template( 'templates/page-styleguide.php' ) ) {
-		wp_enqueue_style(
-			'styleguide',
-			TENUP_THEME_TEMPLATE_URL . '/dist/css/styleguide-style.css',
-			[],
-			Utility\get_asset_info( 'styleguide-style', 'version' )
-		);
-	}
+/**
+ * Enqueue scripts for admin
+ *
+ * @return void
+ */
+function admin_scripts() {
+	// wp_enqueue_script(
+	// 	'admin',
+	// 	TENUP_THEME_TEMPLATE_URL . '/dist/js/admin.js',
+	// 	Utility\get_asset_info( 'admin', 'dependencies' ),
+	// 	Utility\get_asset_info( 'admin', 'version' ),
+	// 	true
+	// );
+}
+
+/**
+ * Enqueue styles for admin
+ *
+ * @return void
+ */
+function admin_styles() {
+	// wp_enqueue_style(
+	// 	'admin-style',
+	// 	TENUP_THEME_TEMPLATE_URL . '/dist/css/admin-style.css',
+	// 	[],
+	// 	Utility\get_asset_info( 'admin-style', 'version' )
+	// );
+}
+
+/**
+ * Removes hardcoded styles for admin bar placemnet.
+ */
+function remove_admin_bar_layout_styles() {
+	remove_action( 'wp_head', '_admin_bar_bump_cb' );
+}
+
+/**
+ * Asynchronous stylesheet definitions
+ *
+ * Determines which stylesheets should behave
+ * asynchronously on the page by storing their
+ * unique handle in an array.
+ *
+ * @return array
+ */
+function get_known_handles() {
+	$async_styles = [
+		'admin-bar',
+		'dashicons',
+		'single',
+		'archive',
+		'home',
+		'front-page',
+		'blocks',
+	];
+
+	return $async_styles;
 }
 
 /**
@@ -204,8 +188,63 @@ function styles() {
  * @return void
  */
 function js_detection() {
-
 	echo "<script>(function(html){html.className = html.className.replace(/\bno-js\b/,'js')})(document.documentElement);</script>\n";
+}
+
+/**
+ * Safari 10.1 supports modules, but does not support the `nomodule` attribute - it will
+ * load <script nomodule> anyway.
+ *
+ * @link https://gist.github.com/samthor/64b114e4a4f539915a95b91ffd340acc
+ */
+function module_detection() {
+	echo "<script>
+	(function(d) {
+		var js = d.createElement('script');
+		if (!('noModule' in js) && 'onbeforeload' in js) {
+		  var support = false;
+		  d.addEventListener('beforeload', function(e) {
+			if (e.target === js) {
+			  support = true;
+			} else if (!e.target.hasAttribute('nomodule') || !support) {
+			  return;
+			}
+			e.preventDefault();
+		  }, true);
+
+		  js.type = 'module';
+		  js.src = '.';
+		  d.head.appendChild(js);
+		  js.remove();
+		}
+	  })(document);
+	</script>";
+}
+
+/**
+ * Add async/defer attributes to enqueued scripts that have the specified script_execution flag.
+ *
+ * @link https://developer.wordpress.org/reference/hooks/style_loader_tag/
+ * @param string $html   The style html output.
+ * @param string $handle The style handle.
+ * @return string
+ */
+function style_loader_tag( $html, $handle ) {
+	// Get previously defined stylesheets.
+	$known_handles = get_known_handles();
+
+	// Loop over stylesheets and replace media attribute
+	foreach ( $known_handles as $known_style ) {
+		if ( $known_style === $handle ) {
+			$print_html = str_replace( "media='all'", "media='print' onload=\"this.media='all'\"", $html );
+		}
+	}
+
+	if ( ! empty( $print_html ) ) {
+		$html = $print_html . '<noscript>' . $html . '</noscript>';
+	}
+
+	return $html;
 }
 
 /**
@@ -217,29 +256,40 @@ function js_detection() {
  * @return string
  */
 function script_loader_tag( $tag, $handle ) {
-	$script_execution = wp_scripts()->get_data( $handle, 'script_execution' );
+	$new_tag = $tag;
+	$attributes = wp_scripts()->get_data( $handle, 'attributes' );
 
-	if ( ! $script_execution ) {
-		return $tag;
+	if ( empty( $attributes ) || ! is_array( $attributes ) ) {
+		return $new_tag;
 	}
 
-	if ( 'async' !== $script_execution && 'defer' !== $script_execution ) {
-		return $tag;
-	}
+	foreach ( $attributes as $attribute => $value ) {
 
-	// Abort adding async/defer for scripts that have this script as a dependency. _doing_it_wrong()?
-	foreach ( wp_scripts()->registered as $script ) {
-		if ( in_array( $handle, $script->deps, true ) ) {
-			return $tag;
+		if ( ! $value ) {
+			break;
+		}
+
+		// Abort adding async/defer for scripts that have this script as a dependency. _doing_it_wrong()?
+		if ( 'async' === $attribute || 'defer' === $attribute ) {
+			foreach ( wp_scripts()->registered as $script ) {
+				if ( in_array( $handle, $script->deps, true ) ) {
+					break;
+				}
+			}
+		}
+
+		// Add the attribute if it hasn't already been added.
+		if ( ! preg_match( ":\s$attribute(=|>|\s):", $new_tag ) ) {
+
+			if ( is_string( $value ) ) {
+				$new_tag = preg_replace( ':(?=></script>):', " $attribute" . '="' . $value . '"', $new_tag, 1 );
+			} else {
+				$new_tag = preg_replace( ':(?=></script>):', " $attribute", $new_tag, 1 );
+			}
 		}
 	}
 
-	// Add the attribute if it hasn't already been added.
-	if ( ! preg_match( ":\s$script_execution(=|>|\s):", $tag ) ) {
-		$tag = preg_replace( ':(?=></script>):', " $script_execution", $tag, 1 );
-	}
-
-	return $tag;
+	return $new_tag;
 }
 
 /**
